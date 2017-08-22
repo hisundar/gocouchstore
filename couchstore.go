@@ -16,10 +16,48 @@ package couchstore
 // export CGO_LDFLAGS="-L {COUCHBASE_DIR}/install/lib"
 // export LD_LIBRARY_PATH={COUCHBASE_DIR}/install/lib
 
-//#cgo LDFLAGS: -lcouchstore
-//#include <stdlib.h>
-//#include <libcouchstore/couch_db.h>
-//#include <libcouchstore/couch_common.h>
+/*
+#cgo LDFLAGS: -lcouchstore
+
+#include <stdlib.h>
+#include <libcouchstore/couch_db.h>
+#include <libcouchstore/couch_common.h>
+
+typedef struct {
+    char bytes[sizeof(Doc)];
+} opqDoc;
+
+typedef struct {
+    char bytes[sizeof(DocInfo)];
+} opqDocInfo;
+
+void load_doc(opqDoc *doc_ptr, opqDocInfo *info_ptr, void *key, size_t keylen,
+              void *meta, size_t metalen, void *body, size_t bodylen) {
+    Doc *doc = (Doc *)doc_ptr;
+    DocInfo *info = (DocInfo *)info_ptr;
+    if (keylen != 0) {
+	    doc->id.buf = (char *)key;
+	    doc->id.size = keylen;
+        info->id = doc->id;
+    }
+
+    if (bodylen != 0) {
+        doc->data.buf = (char *)body;
+	    doc->data.size = bodylen;
+    }
+
+    if (metalen != 0) {
+        info->rev_meta.buf = (char *)meta;
+        info->rev_meta.size = metalen;
+    }
+}
+
+void set_doc_deleted(opqDocInfo *info_ptr) {
+    DocInfo *info = (DocInfo *)info_ptr;
+    info->deleted = 1;
+}
+
+*/
 import "C"
 
 import (
@@ -84,42 +122,44 @@ var errText = map[Errno]string{
 }
 
 type Doc struct {
-	doc  C.Doc
-	info C.DocInfo
+	doc  C.opqDoc
+	info C.opqDocInfo
 }
 
 func NewDoc(key, meta, body []byte) (*Doc, error) {
 	rv := Doc{}
-
+	var k, m, b unsafe.Pointer
 	if len(key) != 0 {
-		rv.doc.id.buf = (*C.char)(unsafe.Pointer(&key[0]))
-		rv.doc.id.size = C.size_t(len(key))
-		rv.info.id = rv.doc.id
+		k = unsafe.Pointer(&key[0])
 	}
-
 	if len(meta) != 0 {
-		rv.info.rev_meta.buf = (*C.char)(unsafe.Pointer(&meta[0]))
-		rv.info.rev_meta.size = C.size_t(len(meta))
+		m = unsafe.Pointer(&meta[0])
+	}
+	if len(body) != 0 {
+		b = unsafe.Pointer(&body[0])
 	}
 
-	if len(body) != 0 {
-		rv.doc.data.buf = (*C.char)(unsafe.Pointer(&body[0]))
-		rv.doc.data.size = C.size_t(len(body))
-	}
+	C.load_doc(&rv.doc, &rv.info,
+		k, C.size_t(len(key)),
+		m, C.size_t(len(meta)),
+		b, C.size_t(len(body)))
 
 	return &rv, nil
 }
 
 func (d *Doc) Key() []byte {
-	return C.GoBytes(unsafe.Pointer(d.doc.id.buf), C.int(d.doc.id.size))
+	doc := (*C.Doc)(unsafe.Pointer(&d.doc))
+	return C.GoBytes(unsafe.Pointer(doc.id.buf), C.int(doc.id.size))
 }
 
 func (d *Doc) Meta() []byte {
-	return C.GoBytes(unsafe.Pointer(d.info.rev_meta.buf), C.int(d.info.rev_meta.size))
+	info := (*C.DocInfo)(unsafe.Pointer(&d.info))
+	return C.GoBytes(unsafe.Pointer(info.rev_meta.buf), C.int(info.rev_meta.size))
 }
 
 func (d *Doc) Body() []byte {
-	return C.GoBytes(unsafe.Pointer(d.doc.data.buf), C.int(d.doc.data.size))
+	doc := (*C.Doc)(unsafe.Pointer(&d.doc))
+	return C.GoBytes(unsafe.Pointer(doc.data.buf), C.int(doc.data.size))
 }
 
 type CouchstoreOpenFlags C.couchstore_open_flags
@@ -213,7 +253,9 @@ func Open(filename string, openFlags CouchstoreOpenFlags) (*CouchSt, error) {
 }
 
 func (s *CouchSt) Set(doc *Doc) error {
-	rv := C.couchstore_save_document(s.db, &doc.doc, &doc.info, 0)
+	docIn := (*C.Doc)(unsafe.Pointer(&doc.doc))
+	docInfoIn := (*C.DocInfo)(unsafe.Pointer(&doc.info))
+	rv := C.couchstore_save_document(s.db, docIn, docInfoIn, 0)
 	if rv != 0 {
 		return Errno(rv)
 	}
@@ -222,19 +264,20 @@ func (s *CouchSt) Set(doc *Doc) error {
 
 func (s *CouchSt) Get(doc *Doc) error {
 	var docOut *C.Doc
-	rv := C.couchstore_open_document(s.db, unsafe.Pointer(doc.doc.id.buf),
-		doc.doc.id.size, &docOut, 0)
+	var docIn *C.Doc = (*C.Doc)(unsafe.Pointer(&doc.doc))
+	rv := C.couchstore_open_document(s.db, unsafe.Pointer(docIn.id.buf),
+		docIn.id.size, &docOut, 0)
 
 	if rv != 0 {
 		return Errno(rv)
 	}
 
-	doc.doc = *docOut
+	*docIn = *docOut
 	return nil
 }
 
 func (s *CouchSt) Delete(doc *Doc) error {
-	doc.info.deleted = C.int(1)
+	C.set_doc_deleted(&doc.info)
 	return s.Set(doc)
 }
 

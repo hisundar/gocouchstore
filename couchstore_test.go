@@ -7,9 +7,9 @@ import (
 )
 
 func TestCouchstoreCrud(t *testing.T) {
-	defer os.RemoveAll("test")
+	os.RemoveAll("test.couch")
 
-	cst, err := Open("test", OpenFlagCreate)
+	cst, err := Open("test.couch", OpenFlagCreate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,93 +22,86 @@ func TestCouchstoreCrud(t *testing.T) {
 	}
 	err = cst.Get(doc)
 	if err != COUCHSTORE_ERROR_DOC_NOT_FOUND {
-		t.Errorf("expected %v, got %v", COUCHSTORE_ERROR_DOC_NOT_FOUND, err)
+		t.Fatalf("expected %v, got %v", COUCHSTORE_ERROR_DOC_NOT_FOUND, err)
 	}
 
 	// put a new key
-	doc, err = NewDoc([]byte("key1"), nil, []byte("value1"))
+	doc2, err := NewDoc([]byte("key1"), nil, []byte("value1"))
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Set(doc)
+	err = cst.Set(doc2)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = cst.Commit()
 	if err != nil {
 		t.Error(err)
 	}
 
 	// lookup that key
-	doc, err = NewDoc([]byte("key1"), nil, nil)
+	doc3, err := NewDoc([]byte("key1"), nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Get(doc)
+	err = cst.Get(doc3)
 	if err != nil {
 		t.Error(err)
 	}
-	if string(doc.Body()) != "value1" {
-		t.Errorf("expected value1, got %s", doc.Body())
+	if string(doc3.Body()) != "value1" {
+		t.Errorf("expected value1, got %s", doc3.Body())
 	}
 
 	// update it
-	doc, err = NewDoc([]byte("key1"), nil, []byte("value1-updated"))
+	doc4, err := NewDoc([]byte("key1"), nil, []byte("value1-updated"))
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Set(doc)
+	err = cst.Set(doc4)
 	if err != nil {
 		t.Error(err)
 	}
 
 	// look it up again
-	doc, err = NewDoc([]byte("key1"), nil, nil)
+	doc5, err := NewDoc([]byte("key1"), nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Get(doc)
+	err = cst.Get(doc5)
 	if err != nil {
 		t.Error(err)
 	}
-	if string(doc.Body()) != "value1-updated" {
-		t.Errorf("expected value1-updated, got %s", doc.Body())
+	if string(doc5.Body()) != "value1-updated" {
+		t.Errorf("expected value1-updated, got %s", doc5.Body())
 	}
 
 	// delete it
-	doc, err = NewDoc([]byte("key1"), nil, nil)
+	doc6, err := NewDoc([]byte("key1"), nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Delete(doc)
+	err = cst.Delete(doc6)
+	if err != nil {
+		t.Error(err)
+	}
+
+	err = cst.Commit()
 	if err != nil {
 		t.Error(err)
 	}
 
 	// look it up again
-	doc, err = NewDoc([]byte("key1"), nil, nil)
+	doc7, err := NewDoc([]byte("key1"), nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Get(doc)
-	if err != COUCHSTORE_ERROR_DOC_NOT_FOUND {
-		t.Error(err)
-	}
-
-	// delete it again
-	doc, err = NewDoc([]byte("key1"), nil, nil)
+	err = cst.Get(doc7)
 	if err != nil {
 		t.Error(err)
 	}
-	err = cst.Delete(doc)
-	if err != nil {
-		t.Error(err)
-	}
-
-	// delete non-existant key
-	doc, err = NewDoc([]byte("doesnotext"), nil, nil)
-	if err != nil {
-		t.Error(err)
-	}
-	err = cst.Delete(doc)
-	if err != nil {
-		t.Error(err)
+	if string(doc7.Body()) != "" {
+		t.Errorf("expected value1-updated, got %s", doc7.Body())
 	}
 
 	// check the db info at the end
@@ -116,16 +109,17 @@ func TestCouchstoreCrud(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if kvInfo.DocCount() == 0 {
-		t.Errorf("Incorrect doc count", kvInfo.DocCount())
+
+	if kvInfo.DocCount() != 0 {
+		t.Fatalf("Incorrect doc count %v", kvInfo.DocCount())
 	}
 }
 
 func TestCouchstoreCompact(t *testing.T) {
-	defer os.RemoveAll("test")
-	defer os.RemoveAll("test-compacted")
+	defer os.RemoveAll("test.couch")
+	defer os.RemoveAll("test-compacted.couch")
 
-	cst, err := Open("test", OpenFlagCreate)
+	cst, err := Open("test.couch", OpenFlagCreate)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +136,7 @@ func TestCouchstoreCompact(t *testing.T) {
 		}
 	}
 
-	err = cst.Compact("test-compacted")
+	err = cst.Compact("test-compacted.couch")
 	if err != nil {
 		t.Error(err)
 	}
